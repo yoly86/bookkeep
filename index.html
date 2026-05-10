@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Easy Bookkeeping</title>
+  <title>Aureline™ Easy Bookkeeping</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -23,7 +23,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
     const { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } = window.Recharts;
 
     // --- Icon Components ---
@@ -44,6 +44,7 @@
     const PieIcon = (p) => <IconWrapper {...p}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></IconWrapper>;
     const Trash2 = (p) => <IconWrapper {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></IconWrapper>;
     const Download = (p) => <IconWrapper {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></IconWrapper>;
+    const Upload = (p) => <IconWrapper {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></IconWrapper>;
     const ChevronRight = (p) => <IconWrapper {...p}><polyline points="9 18 15 12 9 6"/></IconWrapper>;
     const Info = (p) => <IconWrapper {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></IconWrapper>;
     const FileSpreadsheet = (p) => <IconWrapper {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2"/><path d="M8 17h2"/><path d="M14 13h2"/><path d="M14 17h2"/></IconWrapper>;
@@ -98,8 +99,13 @@
       const [loanActionType, setLoanActionType] = useState('repayment'); // For loan toggle
       const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
       const [transactions, setTransactions] = useState([]);
-      const [itemToDelete, setItemToDelete] = useState(null); // Modal state
-      const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile Menu
+      
+      // Modal & Status states
+      const [itemToDelete, setItemToDelete] = useState(null); 
+      const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+      const [notification, setNotification] = useState(null); // { title: '', message: '', type: 'success' | 'error' }
+      
+      const fileInputRef = useRef(null); // Reference for importing files
       
       // Customizable Lists State
       const [accounts, setAccounts] = useState(() => JSON.parse(localStorage.getItem('bk_accounts')) || DEFAULT_ACCOUNTS);
@@ -293,14 +299,51 @@
         setItemToDelete(null);
       };
 
+      // Full state bundle backup
       const exportData = () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(transactions));
+        const backupBundle = {
+          transactions,
+          accounts,
+          categories
+        };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupBundle));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", `bookkeeping_export_${new Date().toISOString().split('T')[0]}.json`);
+        downloadAnchorNode.setAttribute("download", `bookkeeping_backup_${new Date().toISOString().split('T')[0]}.json`);
         document.body.appendChild(downloadAnchorNode);
         downloadAnchorNode.click();
         downloadAnchorNode.remove();
+      };
+      
+      const handleImport = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (Array.isArray(data)) {
+              // Legacy support: imported file only contains a transactions array
+              setTransactions(data);
+              setNotification({ title: "Import Successful", message: "Your transactions have been successfully restored.", type: "success" });
+            } else if (data.transactions) {
+              // New format: full backup bundle
+              setTransactions(data.transactions);
+              if (data.accounts) setAccounts(data.accounts);
+              if (data.categories) setCategories(data.categories);
+              setNotification({ title: "Backup Restored", message: "Your transactions, accounts, and categories have been successfully restored.", type: "success" });
+            } else {
+              setNotification({ title: "Import Failed", message: "The selected file is not a valid backup.", type: "error" });
+            }
+          } catch (err) {
+            console.error(err);
+            setNotification({ title: "Import Failed", message: "Could not read the JSON file.", type: "error" });
+          }
+          // Reset file input
+          event.target.value = null;
+        };
+        reader.readAsText(file);
       };
 
       const exportToCSV = () => {
@@ -396,6 +439,21 @@
             </div>
           )}
 
+          {/* General Notification Modal */}
+          {notification && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <div className="bg-white p-6 rounded-2xl max-w-sm w-full shadow-2xl border border-gray-100 transform transition-all text-center">
+                <h3 className={`text-xl font-bold mb-2 ${notification.type === 'error' ? 'text-rose-600' : 'text-[#4F7942]'}`}>
+                  {notification.title}
+                </h3>
+                <p className="text-sm text-gray-500 mb-6 leading-relaxed">{notification.message}</p>
+                <button onClick={() => setNotification(null)} className="w-full px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-sm font-bold transition-all">
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Sidebar Navigation */}
           <aside className={`w-64 bg-[#E5EAE5] border-r border-[#CFD8CF] flex flex-col z-50 fixed inset-y-0 left-0 md:relative transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
             <div className="p-6 md:p-8 flex justify-between items-center">
@@ -443,6 +501,16 @@
             </nav>
 
             <div className="p-4 md:p-6 space-y-3">
+              <input 
+                type="file" 
+                accept=".json" 
+                ref={fileInputRef} 
+                onChange={handleImport} 
+                className="hidden" 
+              />
+              <button onClick={() => fileInputRef.current.click()} className="w-full flex items-center justify-center gap-2 py-3 text-[11px] font-bold uppercase tracking-wider text-[#4F7942] bg-white rounded-xl border border-[#CFD8CF] hover:shadow-md transition-all active:scale-95">
+                <Upload size={14} /> Import Backup
+              </button>
               <button onClick={exportData} className="w-full flex items-center justify-center gap-2 py-3 text-[11px] font-bold uppercase tracking-wider text-[#4F7942] bg-white rounded-xl border border-[#CFD8CF] hover:shadow-md transition-all active:scale-95">
                 <Download size={14} /> Backup (JSON)
               </button>
